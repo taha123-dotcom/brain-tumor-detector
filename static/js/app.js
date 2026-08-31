@@ -9,6 +9,7 @@ const predConfidence = document.getElementById('predConfidence');
 const probBars = document.getElementById('probBars');
 const pieCanvas = document.getElementById('pieChart');
 const pieLegend = document.getElementById('pieLegend');
+const historyTable = document.getElementById('historyTable');
 
 let selectedFile = null;
 
@@ -70,6 +71,7 @@ predictBtn.addEventListener('click', async () => {
         predictBtn.disabled = false;
         predictBtn.textContent = 'Predict';
         dropZone.classList.remove('loading');
+        loadHistory();
     }
 });
 
@@ -162,3 +164,32 @@ function showResult(data) {
 
     drawPieChart(data.probabilities);
 }
+
+async function loadHistory() {
+    try {
+        const res = await fetch('/api/history');
+        const data = await res.json();
+        if (!data.length) {
+            historyTable.innerHTML = '<p style="color:var(--text-dim)">No predictions yet.</p>';
+            return;
+        }
+        let html = `<table class="history-table">
+            <thead><tr><th>File</th><th>Prediction</th><th>Confidence</th><th>Time</th></tr></thead>
+            <tbody>`;
+        for (const r of data) {
+            const t = new Date(r.created_at).toLocaleString();
+            html += `<tr>
+                <td>${r.filename}</td>
+                <td><span class="pred-tag ${r.prediction}">${r.prediction.replace(/_/g, ' ')}</span></td>
+                <td>${r.confidence}%</td>
+                <td>${t}</td>
+            </tr>`;
+        }
+        html += '</tbody></table>';
+        historyTable.innerHTML = html;
+    } catch (e) {
+        historyTable.innerHTML = '<p style="color:var(--text-dim)">Could not load history.</p>';
+    }
+}
+
+loadHistory();

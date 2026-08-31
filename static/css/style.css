@@ -290,3 +290,54 @@ footer {
     opacity: 0.5;
     pointer-events: none;
 }
+
+.history-section {
+    margin-top: 2.5rem;
+}
+
+.history-section h2 {
+    font-size: 1.25rem;
+    margin-bottom: 1rem;
+    font-weight: 700;
+}
+
+.history-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.history-table th,
+.history-table td {
+    padding: 0.65rem 0.85rem;
+    text-align: left;
+    border-bottom: 1px solid var(--surface2);
+    font-size: 0.85rem;
+}
+
+.history-table th {
+    color: var(--text-dim);
+    font-weight: 600;
+    background: var(--surface2);
+}
+
+.history-table tr:hover {
+    background: var(--surface2);
+}
+
+.pred-tag {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: capitalize;
+}
+
+.pred-tag.brain_glioma { background: rgba(248,113,113,0.15); color: var(--glioma); }
+.pred-tag.brain_menin { background: rgba(251,191,36,0.15); color: var(--menin); }
+.pred-tag.brain_tumor { background: rgba(192,132,252,0.15); color: var(--tumor); }
+.pred-tag.healthy { background: rgba(52,211,153,0.15); color: var(--healthy); }
