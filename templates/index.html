@@ -13,8 +13,8 @@
             <p class="subtitle">Upload a brain MRI scan for AI-powered classification</p>
             <div class="model-info">
                 <span class="badge">Accuracy: {{ metrics.test_accuracy }}%</span>
-                <span class="badge">Classes: {{ metrics.classes | length }}</span>
-                <span class="badge">Epochs: {{ metrics.epochs }}</span>
+                <span class="badge">3 Classes + Healthy Fallback</span>
+                <span class="badge">Threshold: 30%</span>
             </div>
         </header>
 
@@ -43,14 +43,14 @@
             </div>
         </div>
 
-        <div class="stats-section" id="statsSection">
+        <div class="stats-section">
             <h2>Prediction History</h2>
             <div class="stats-grid" id="statsGrid"></div>
             <div id="historyTable"></div>
         </div>
 
         <footer>
-            <p>ONNX Model deployed on Render &bull; DB by Neon Postgres</p>
+            <p>Brain Tumor CNN &bull; 99.34% Accuracy &bull; ONNX + Flask + Neon Postgres</p>
         </footer>
     </div>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>

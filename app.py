@@ -19,16 +19,11 @@ app = Flask(__name__)
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 if DATABASE_URL:
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-    if "channel_binding=require" in DATABASE_URL:
-        DATABASE_URL = DATABASE_URL.replace("&channel_binding=require", "")
-        DATABASE_URL = DATABASE_URL.replace("?channel_binding=require", "")
-else:
-    DATABASE_URL = "sqlite:///local.db"
+    DATABASE_URL = DATABASE_URL.replace("channel_binding=require", "").replace("&&", "&").strip("&?")
 
-app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
+app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL or "sqlite:///local.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
-    "connect_args": {"sslmode": "require"},
     "pool_pre_ping": True,
     "pool_recycle": 300,
 }
@@ -57,33 +52,31 @@ class Prediction(db.Model):
         }
 
 
-def init_db():
-    try:
-        with app.app_context():
-            db.create_all()
-            test = db.session.execute(db.text("SELECT 1")).scalar()
-            print(f"DB OK: connected, test query returned {test}")
-            return True
-    except Exception as e:
-        print(f"DB FAILED: {e}")
-        traceback.print_exc()
-        return False
-
-DB_OK = init_db()
+DB_OK = False
+try:
+    with app.app_context():
+        db.create_all()
+        db.session.execute(db.text("SELECT 1"))
+        db.session.commit()
+        DB_OK = True
+        print("[DB] Connected successfully")
+except Exception as e:
+    print(f"[DB] Connection failed: {e}")
+    traceback.print_exc()
 
 MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
 
 model_path = os.path.join(MODEL_DIR, "model.onnx")
 if not os.path.exists(model_path):
-    alt = os.path.join(os.getcwd(), "models", "model.onnx")
-    if os.path.exists(alt):
-        model_path = alt
-    else:
-        alt = os.path.join(os.getcwd(), "brain_tumor_model.onnx")
+    for alt in [
+        os.path.join(os.getcwd(), "models", "model.onnx"),
+        os.path.join(os.getcwd(), "brain_tumor_model.onnx"),
+    ]:
         if os.path.exists(alt):
             model_path = alt
+            break
 
-print(f"Loading model from: {model_path}")
+print(f"[Model] Loading: {model_path}")
 session = ort.InferenceSession(model_path)
 
 with open(os.path.join(MODEL_DIR, "labels.json")) as f:
@@ -147,25 +140,23 @@ def predict():
 
     prob_dict = {LABELS[i]: float(probs[i]) for i in range(len(LABELS))}
     if HEALTHY_ENABLED:
-        prob_dict["healthy"] = round((1.0 - float(np.max(probs))) * 100, 2) if confidence < HEALTHY_THRESHOLD else 0.0
+        prob_dict["healthy"] = round((1.0 - float(np.max(probs))) * 100, 2) if pred_label == "healthy" else 0.0
 
     record_id = None
     if DB_OK:
         try:
-            with app.app_context():
-                record = Prediction(
-                    filename=file.filename,
-                    prediction=pred_label,
-                    confidence=confidence,
-                    probabilities=prob_dict,
-                )
-                db.session.add(record)
-                db.session.commit()
-                record_id = record.id
-                print(f"DB write OK: {record_id} -> {pred_label}")
+            record = Prediction(
+                filename=file.filename,
+                prediction=pred_label,
+                confidence=confidence,
+                probabilities=prob_dict,
+            )
+            db.session.add(record)
+            db.session.commit()
+            record_id = record.id
         except Exception as e:
-            print(f"DB write failed: {e}")
-            traceback.print_exc()
+            print(f"[DB] Write failed: {e}")
+            db.session.rollback()
 
     return jsonify(
         {
@@ -182,53 +173,65 @@ def history():
     if not DB_OK:
         return jsonify([])
     try:
-        with app.app_context():
-            records = Prediction.query.order_by(Prediction.created_at.desc()).limit(50).all()
-            return jsonify([r.to_dict() for r in records])
+        records = Prediction.query.order_by(Prediction.created_at.desc()).limit(50).all()
+        return jsonify([r.to_dict() for r in records])
     except Exception as e:
-        print(f"History query failed: {e}")
+        print(f"[DB] History failed: {e}")
+        db.session.rollback()
         return jsonify([])
 
 
 @app.route("/api/stats")
 def stats():
     total = 0
-    class_counts = []
+    class_counts = {}
     if DB_OK:
         try:
-            with app.app_context():
-                from sqlalchemy import func
-                total = Prediction.query.count()
-                class_counts = (
-                    db.session.query(Prediction.prediction, func.count(Prediction.prediction))
-                    .group_by(Prediction.prediction)
-                    .all()
-                )
+            from sqlalchemy import func
+            total = Prediction.query.count()
+            rows = (
+                db.session.query(Prediction.prediction, func.count(Prediction.prediction))
+                .group_by(Prediction.prediction)
+                .all()
+            )
+            class_counts = {label: count for label, count in rows}
         except Exception as e:
-            print(f"Stats query failed: {e}")
+            print(f"[DB] Stats failed: {e}")
+            db.session.rollback()
     return jsonify(
         {
             "total_predictions": total,
-            "class_distribution": {label: count for label, count in class_counts},
+            "class_distribution": class_counts,
             "model_accuracy": METRICS.get("test_accuracy"),
-            "classes": LABELS,
+            "classes": LABELS + (["healthy"] if HEALTHY_ENABLED else []),
         }
     )
 
 
 @app.route("/api/debug")
 def debug():
-    return jsonify({
-        "db_ok": DB_OK,
-        "database_url_set": bool(os.environ.get("DATABASE_URL")),
-        "model_loaded": session is not None,
-        "labels": LABELS,
-    })
+    db_version = None
+    if DB_OK:
+        try:
+            result = db.session.execute(db.text("SELECT version()")).scalar()
+            db_version = result[:60] if result else None
+        except Exception:
+            pass
+    return jsonify(
+        {
+            "db_ok": DB_OK,
+            "db_url_set": bool(DATABASE_URL),
+            "db_version": db_version,
+            "model_loaded": session is not None,
+            "labels": LABELS,
+            "healthy_threshold": HEALTHY_THRESHOLD if HEALTHY_ENABLED else None,
+        }
+    )
 
 
 @app.route("/health")
 def health():
-    return jsonify({"status": "ok"})
+    return jsonify({"status": "ok", "db": DB_OK})
 
 
 if __name__ == "__main__":
