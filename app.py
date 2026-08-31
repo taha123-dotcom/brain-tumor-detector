@@ -165,8 +165,12 @@ def predict():
 def history():
     if not DB_ENABLED:
         return jsonify([])
-    records = Prediction.query.order_by(Prediction.created_at.desc()).limit(50).all()
-    return jsonify([r.to_dict() for r in records])
+    try:
+        records = Prediction.query.order_by(Prediction.created_at.desc()).limit(50).all()
+        return jsonify([r.to_dict() for r in records])
+    except Exception as e:
+        print(f"History query failed: {e}")
+        return jsonify([])
 
 
 @app.route("/api/stats")
@@ -174,13 +178,16 @@ def stats():
     total = 0
     class_counts = []
     if DB_ENABLED:
-        from sqlalchemy import func
-        total = Prediction.query.count()
-        class_counts = (
-            db.session.query(Prediction.prediction, func.count(Prediction.prediction))
-            .group_by(Prediction.prediction)
-            .all()
-        )
+        try:
+            from sqlalchemy import func
+            total = Prediction.query.count()
+            class_counts = (
+                db.session.query(Prediction.prediction, func.count(Prediction.prediction))
+                .group_by(Prediction.prediction)
+                .all()
+            )
+        except Exception as e:
+            print(f"Stats query failed: {e}")
     return jsonify(
         {
             "total_predictions": total,
