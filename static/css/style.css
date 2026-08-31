@@ -306,3 +306,49 @@ footer {
     opacity: 0.5;
     pointer-events: none;
 }
+
+.pie-chart-wrap {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    margin: 1.25rem 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.25rem;
+}
+
+#pieChart {
+    flex-shrink: 0;
+}
+
+.pie-legend {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+}
+
+.legend-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+
+.legend-text {
+    color: var(--text-dim);
+    text-transform: capitalize;
+    flex: 1;
+}
+
+.legend-val {
+    font-weight: 600;
+    color: var(--text);
+}

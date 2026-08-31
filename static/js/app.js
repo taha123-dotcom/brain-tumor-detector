@@ -9,6 +9,8 @@ const predConfidence = document.getElementById('predConfidence');
 const probBars = document.getElementById('probBars');
 const statsGrid = document.getElementById('statsGrid');
 const historyTable = document.getElementById('historyTable');
+const pieCanvas = document.getElementById('pieChart');
+const pieLegend = document.getElementById('pieLegend');
 
 let selectedFile = null;
 
@@ -75,6 +77,74 @@ predictBtn.addEventListener('click', async () => {
     }
 });
 
+function drawPieChart(probabilities) {
+    const ctx = pieCanvas.getContext('2d');
+    const cx = pieCanvas.width / 2;
+    const cy = pieCanvas.height / 2;
+    const radius = Math.min(cx, cy) - 10;
+
+    ctx.clearRect(0, 0, pieCanvas.width, pieCanvas.height);
+
+    const entries = Object.entries(probabilities).filter(([, v]) => v > 0);
+    const total = entries.reduce((sum, [, v]) => sum + v, 0);
+
+    if (total === 0) return;
+
+    let startAngle = -Math.PI / 2;
+
+    for (const [cls, value] of entries) {
+        const sliceAngle = (value / total) * 2 * Math.PI;
+        const color = classColors[cls] || '#3b82f6';
+
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.arc(cx, cy, radius, startAngle, startAngle + sliceAngle);
+        ctx.closePath();
+        ctx.fillStyle = color;
+        ctx.fill();
+
+        if (sliceAngle > 0.3) {
+            const midAngle = startAngle + sliceAngle / 2;
+            const labelR = radius * 0.65;
+            const lx = cx + Math.cos(midAngle) * labelR;
+            const ly = cy + Math.sin(midAngle) * labelR;
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 13px system-ui, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(value.toFixed(1) + '%', lx, ly);
+        }
+
+        startAngle += sliceAngle;
+    }
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius * 0.4, 0, 2 * Math.PI);
+    ctx.fillStyle = '#1e293b';
+    ctx.fill();
+
+    const predText = document.getElementById('predLabel').textContent;
+    ctx.fillStyle = '#f1f5f9';
+    ctx.font = 'bold 14px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(predText, cx, cy - 8);
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText(document.getElementById('predConfidence').textContent, cx, cy + 10);
+
+    pieLegend.innerHTML = '';
+    for (const [cls, value] of entries) {
+        const color = classColors[cls] || '#3b82f6';
+        pieLegend.innerHTML += `
+            <div class="legend-item">
+                <span class="legend-dot" style="background:${color}"></span>
+                <span class="legend-text">${cls.replace(/_/g, ' ')}</span>
+                <span class="legend-val">${value.toFixed(1)}%</span>
+            </div>`;
+    }
+}
+
 function showResult(data) {
     resultSection.style.display = 'block';
     predLabel.textContent = data.prediction.replace(/_/g, ' ');
@@ -94,6 +164,8 @@ function showResult(data) {
                 </div>
             </div>`;
     }
+
+    drawPieChart(data.probabilities);
 }
 
 async function loadHistory() {

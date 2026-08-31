@@ -24,6 +24,7 @@ session = None
 
 DB_URL_CLEAN = None
 db_init_error = None
+DEFAULT_DB_URL = "postgresql://neondb_owner:npg_skYcHNe1Kd2T@ep-holy-rice-azu6qi5i-pooler.c-3.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
 
 
 def clean_db_url(raw_url):
@@ -68,7 +69,7 @@ def get_db():
 
 def init_db():
     global DB_URL_CLEAN, db_init_error
-    raw_url = os.environ.get("DATABASE_URL", "")
+    raw_url = os.environ.get("DATABASE_URL", "") or DEFAULT_DB_URL
     if not raw_url:
         db_init_error = "DATABASE_URL not set"
         print(f"DB: {db_init_error}")
