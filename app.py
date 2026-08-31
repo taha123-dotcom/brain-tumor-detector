@@ -16,19 +16,20 @@ load_dotenv()
 
 app = Flask(__name__)
 
-DATABASE_URL = os.environ.get("DATABASE_URL")
-if not DATABASE_URL:
-    DATABASE_URL = "sqlite:///local.db"
-elif DATABASE_URL.startswith("postgres://"):
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+if DATABASE_URL:
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    if "channel_binding=require" in DATABASE_URL:
+        DATABASE_URL = DATABASE_URL.replace("&channel_binding=require", "")
+        DATABASE_URL = DATABASE_URL.replace("?channel_binding=require", "")
+else:
+    DATABASE_URL = "sqlite:///local.db"
 
 app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
 
 db = SQLAlchemy(app)
-
-DB_ENABLED = True
 
 
 class Prediction(db.Model):
@@ -51,12 +52,17 @@ class Prediction(db.Model):
         }
 
 
-try:
-    with app.app_context():
-        db.create_all()
-except Exception as e:
-    print(f"DB init failed, running without database: {e}")
-    DB_ENABLED = False
+def init_db():
+    try:
+        with app.app_context():
+            db.create_all()
+            print(f"DB connected: {DATABASE_URL.split('@')[-1] if '@' in DATABASE_URL else 'sqlite'}")
+            return True
+    except Exception as e:
+        print(f"DB init failed: {e}")
+        return False
+
+DB_OK = init_db()
 
 MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
 
@@ -134,22 +140,25 @@ def predict():
 
     prob_dict = {LABELS[i]: float(probs[i]) for i in range(len(LABELS))}
     if HEALTHY_ENABLED:
-        prob_dict["healthy"] = round((1.0 - max(probs)) * 100, 2) if confidence < HEALTHY_THRESHOLD else 0.0
+        prob_dict["healthy"] = round((1.0 - float(np.max(probs))) * 100, 2) if confidence < HEALTHY_THRESHOLD else 0.0
 
     record_id = None
-    if DB_ENABLED:
+    if DB_OK:
         try:
-            record = Prediction(
-                filename=file.filename,
-                prediction=pred_label,
-                confidence=confidence,
-                probabilities=prob_dict,
-            )
-            db.session.add(record)
-            db.session.commit()
-            record_id = record.id
+            with app.app_context():
+                record = Prediction(
+                    filename=file.filename,
+                    prediction=pred_label,
+                    confidence=confidence,
+                    probabilities=prob_dict,
+                )
+                db.session.add(record)
+                db.session.commit()
+                record_id = record.id
+                print(f"DB write OK: {record_id} -> {pred_label}")
         except Exception as e:
             print(f"DB write failed: {e}")
+            traceback.print_exc()
 
     return jsonify(
         {
@@ -163,11 +172,12 @@ def predict():
 
 @app.route("/api/history")
 def history():
-    if not DB_ENABLED:
+    if not DB_OK:
         return jsonify([])
     try:
-        records = Prediction.query.order_by(Prediction.created_at.desc()).limit(50).all()
-        return jsonify([r.to_dict() for r in records])
+        with app.app_context():
+            records = Prediction.query.order_by(Prediction.created_at.desc()).limit(50).all()
+            return jsonify([r.to_dict() for r in records])
     except Exception as e:
         print(f"History query failed: {e}")
         return jsonify([])
@@ -177,15 +187,16 @@ def history():
 def stats():
     total = 0
     class_counts = []
-    if DB_ENABLED:
+    if DB_OK:
         try:
-            from sqlalchemy import func
-            total = Prediction.query.count()
-            class_counts = (
-                db.session.query(Prediction.prediction, func.count(Prediction.prediction))
-                .group_by(Prediction.prediction)
-                .all()
-            )
+            with app.app_context():
+                from sqlalchemy import func
+                total = Prediction.query.count()
+                class_counts = (
+                    db.session.query(Prediction.prediction, func.count(Prediction.prediction))
+                    .group_by(Prediction.prediction)
+                    .all()
+                )
         except Exception as e:
             print(f"Stats query failed: {e}")
     return jsonify(
@@ -196,6 +207,16 @@ def stats():
             "classes": LABELS,
         }
     )
+
+
+@app.route("/api/debug")
+def debug():
+    return jsonify({
+        "db_ok": DB_OK,
+        "database_url_set": bool(os.environ.get("DATABASE_URL")),
+        "model_loaded": session is not None,
+        "labels": LABELS,
+    })
 
 
 @app.route("/health")
