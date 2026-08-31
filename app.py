@@ -27,6 +27,11 @@ else:
 
 app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+    "connect_args": {"sslmode": "require"},
+    "pool_pre_ping": True,
+    "pool_recycle": 300,
+}
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
 
 db = SQLAlchemy(app)
@@ -56,10 +61,12 @@ def init_db():
     try:
         with app.app_context():
             db.create_all()
-            print(f"DB connected: {DATABASE_URL.split('@')[-1] if '@' in DATABASE_URL else 'sqlite'}")
+            test = db.session.execute(db.text("SELECT 1")).scalar()
+            print(f"DB OK: connected, test query returned {test}")
             return True
     except Exception as e:
-        print(f"DB init failed: {e}")
+        print(f"DB FAILED: {e}")
+        traceback.print_exc()
         return False
 
 DB_OK = init_db()
