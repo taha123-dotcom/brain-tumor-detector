@@ -2,6 +2,7 @@ import os
 import json
 import uuid
 import datetime
+import traceback
 from io import BytesIO
 
 import numpy as np
@@ -15,8 +16,10 @@ load_dotenv()
 
 app = Flask(__name__)
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///local.db")
-if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+DATABASE_URL = os.environ.get("DATABASE_URL")
+if not DATABASE_URL:
+    DATABASE_URL = "sqlite:///local.db"
+elif DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
@@ -24,6 +27,8 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024
 
 db = SQLAlchemy(app)
+
+DB_ENABLED = True
 
 
 class Prediction(db.Model):
@@ -46,11 +51,27 @@ class Prediction(db.Model):
         }
 
 
-with app.app_context():
-    db.create_all()
+try:
+    with app.app_context():
+        db.create_all()
+except Exception as e:
+    print(f"DB init failed, running without database: {e}")
+    DB_ENABLED = False
 
-MODEL_DIR = os.path.join(os.path.dirname(__file__), "models")
-session = ort.InferenceSession(os.path.join(MODEL_DIR, "model.onnx"))
+MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
+
+model_path = os.path.join(MODEL_DIR, "model.onnx")
+if not os.path.exists(model_path):
+    alt = os.path.join(os.getcwd(), "models", "model.onnx")
+    if os.path.exists(alt):
+        model_path = alt
+    else:
+        alt = os.path.join(os.getcwd(), "brain_tumor_model.onnx")
+        if os.path.exists(alt):
+            model_path = alt
+
+print(f"Loading model from: {model_path}")
+session = ort.InferenceSession(model_path)
 
 with open(os.path.join(MODEL_DIR, "labels.json")) as f:
     LABELS = json.load(f)
@@ -107,41 +128,51 @@ def predict():
 
     prob_dict = {LABELS[i]: float(probs[i]) for i in range(len(LABELS))}
 
-    record = Prediction(
-        filename=file.filename,
-        prediction=pred_label,
-        confidence=confidence,
-        probabilities=prob_dict,
-    )
-    db.session.add(record)
-    db.session.commit()
+    record_id = None
+    if DB_ENABLED:
+        try:
+            record = Prediction(
+                filename=file.filename,
+                prediction=pred_label,
+                confidence=confidence,
+                probabilities=prob_dict,
+            )
+            db.session.add(record)
+            db.session.commit()
+            record_id = record.id
+        except Exception as e:
+            print(f"DB write failed: {e}")
 
     return jsonify(
         {
             "prediction": pred_label,
             "confidence": round(confidence * 100, 2),
             "probabilities": {k: round(v * 100, 2) for k, v in prob_dict.items()},
-            "id": record.id,
+            "id": record_id,
         }
     )
 
 
 @app.route("/api/history")
 def history():
+    if not DB_ENABLED:
+        return jsonify([])
     records = Prediction.query.order_by(Prediction.created_at.desc()).limit(50).all()
     return jsonify([r.to_dict() for r in records])
 
 
 @app.route("/api/stats")
 def stats():
-    total = Prediction.query.count()
-    from sqlalchemy import func
-
-    class_counts = (
-        db.session.query(Prediction.prediction, func.count(Prediction.prediction))
-        .group_by(Prediction.prediction)
-        .all()
-    )
+    total = 0
+    class_counts = []
+    if DB_ENABLED:
+        from sqlalchemy import func
+        total = Prediction.query.count()
+        class_counts = (
+            db.session.query(Prediction.prediction, func.count(Prediction.prediction))
+            .group_by(Prediction.prediction)
+            .all()
+        )
     return jsonify(
         {
             "total_predictions": total,
