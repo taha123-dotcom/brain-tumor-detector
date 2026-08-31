@@ -226,7 +226,7 @@ def predict():
         pred_label = "healthy"
 
     prob_dict = {LABELS[i]: float(probs[i]) for i in range(len(LABELS))}
-    prob_dict["healthy"] = round(max(0, 1.0 - float(np.max(probs))) * 100, 2)
+    prob_dict["healthy"] = max(0, 1.0 - float(np.max(probs)))
 
     saved = False
     if db_engine:
