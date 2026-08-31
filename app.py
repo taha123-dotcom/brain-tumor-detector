@@ -4,6 +4,8 @@ import uuid
 import datetime
 import traceback
 from io import BytesIO
+from urllib.parse import urlparse
+from contextlib import contextmanager
 
 import numpy as np
 import onnxruntime as ort
@@ -19,151 +21,170 @@ HEALTHY_THRESHOLD = 0.30
 LABELS = []
 METRICS = {}
 session = None
-db_conn = None
-db_error = None
+
+DB_URL_CLEAN = None
+db_init_error = None
+
+
+def clean_db_url(raw_url):
+    url = raw_url.replace("postgres://", "postgresql://", 1)
+    for bad in ["?channel_binding=require", "&channel_binding=require",
+                "?channel_binding=require&", "&channel_binding=require&"]:
+        url = url.replace(bad, "")
+    if url.endswith("?") or url.endswith("&"):
+        url = url[:-1]
+    return url
+
+
+def parse_db_url(url):
+    parsed = urlparse(url)
+    return {
+        "host": parsed.hostname,
+        "port": parsed.port or 5432,
+        "dbname": parsed.path.lstrip("/"),
+        "user": parsed.username,
+        "password": parsed.password,
+    }
+
+
+@contextmanager
+def get_db():
+    import psycopg2
+    conn_params = parse_db_url(DB_URL_CLEAN)
+    conn = psycopg2.connect(
+        host=conn_params["host"],
+        port=conn_params["port"],
+        dbname=conn_params["dbname"],
+        user=conn_params["user"],
+        password=conn_params["password"],
+        sslmode="require",
+        connect_timeout=10,
+    )
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def init_db():
-    global db_conn, db_error
+    global DB_URL_CLEAN, db_init_error
     raw_url = os.environ.get("DATABASE_URL", "")
     if not raw_url:
-        db_error = "DATABASE_URL not set"
-        print(f"DB: {db_error}")
+        db_init_error = "DATABASE_URL not set"
+        print(f"DB: {db_init_error}")
         return
 
+    DB_URL_CLEAN = clean_db_url(raw_url)
+    print(f"DB: URL configured for {DB_URL_CLEAN.split('@')[-1] if '@' in DB_URL_CLEAN else '?'}")
+
     try:
-        import psycopg2
-        from urllib.parse import urlparse
-
-        url = raw_url.replace("postgres://", "postgresql://", 1)
-        url = url.replace("?channel_binding=require", "")
-        url = url.replace("&channel_binding=require", "")
-        url = url.replace("?channel_binding=require&", "?")
-        url = url.replace("&channel_binding=require&", "&")
-        if url.endswith("?") or url.endswith("&"):
-            url = url[:-1]
-
-        parsed = urlparse(url)
-        host = parsed.hostname
-        port = parsed.port or 5432
-        dbname = parsed.path.lstrip("/")
-        user = parsed.username
-        password = parsed.password
-
-        print(f"DB: connecting to {host}:{port}/{dbname} as {user}")
-
-        conn = psycopg2.connect(
-            host=host,
-            port=port,
-            dbname=dbname,
-            user=user,
-            password=password,
-            sslmode="require",
-            connect_timeout=10,
-        )
-        conn.autocommit = True
-
-        cur = conn.cursor()
-        cur.execute("SELECT 1")
-        print(f"DB: connected, test={cur.fetchone()[0]}")
-
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS predictions (
-                id TEXT PRIMARY KEY,
-                filename TEXT NOT NULL,
-                prediction TEXT NOT NULL,
-                confidence DOUBLE PRECISION NOT NULL,
-                probabilities TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            )
-        """)
-        cur.close()
-
-        db_conn = conn
-        db_error = None
-        print("DB: table ready")
-
+        with get_db() as conn:
+            conn.autocommit = True
+            cur = conn.cursor()
+            cur.execute("SELECT 1")
+            print(f"DB: connected, test={cur.fetchone()[0]}")
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS predictions (
+                    id TEXT PRIMARY KEY,
+                    filename TEXT NOT NULL,
+                    prediction TEXT NOT NULL,
+                    confidence DOUBLE PRECISION NOT NULL,
+                    probabilities TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+            """)
+            cur.close()
+            print("DB: table ready")
+            db_init_error = None
     except ImportError:
-        db_error = "psycopg2 not installed"
-        print(f"DB: {db_error}")
+        db_init_error = "psycopg2 not installed"
+        print(f"DB: {db_init_error}")
     except Exception as e:
-        db_error = f"{type(e).__name__}: {e}"
-        print(f"DB: {db_error}")
+        db_init_error = f"{type(e).__name__}: {e}"
+        print(f"DB: {db_init_error}")
         traceback.print_exc()
 
 
+def db_is_ok():
+    return DB_URL_CLEAN is not None and db_init_error is None
+
+
 def db_save(filename, prediction, confidence, probabilities):
-    global db_conn
-    if not db_conn:
-        return False, db_error or "no connection"
+    if not db_is_ok():
+        return False, db_init_error or "db not configured"
     try:
-        cur = db_conn.cursor()
-        cur.execute(
-            "INSERT INTO predictions (id, filename, prediction, confidence, probabilities, created_at) "
-            "VALUES (%s, %s, %s, %s, %s, %s)",
-            (
-                str(uuid.uuid4()),
-                filename,
-                prediction,
-                float(confidence),
-                json.dumps(probabilities),
-                datetime.datetime.utcnow().isoformat(),
-            ),
-        )
-        cur.close()
-        print(f"DB: saved prediction for {filename}")
+        with get_db() as conn:
+            conn.autocommit = True
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO predictions (id, filename, prediction, confidence, probabilities, created_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s)",
+                (
+                    str(uuid.uuid4()),
+                    filename,
+                    prediction,
+                    float(confidence),
+                    json.dumps(probabilities),
+                    datetime.datetime.utcnow().isoformat(),
+                ),
+            )
+            cur.close()
+        print(f"DB: saved prediction for {filename} -> {prediction}")
         return True, None
     except Exception as e:
         err = f"{type(e).__name__}: {e}"
         print(f"DB save failed: {err}")
+        traceback.print_exc()
         return False, err
 
 
 def db_history(limit=50):
-    if not db_conn:
+    if not db_is_ok():
         return []
     try:
-        cur = db_conn.cursor()
-        cur.execute(
-            "SELECT id, filename, prediction, confidence, probabilities, created_at "
-            "FROM predictions ORDER BY created_at DESC LIMIT %s",
-            (limit,),
-        )
-        rows = cur.fetchall()
-        cur.close()
-        results = []
-        for row in rows:
-            probs = row[4]
-            if isinstance(probs, str):
-                try:
-                    probs = json.loads(probs)
-                except Exception:
-                    probs = {}
-            results.append({
-                "id": row[0],
-                "filename": row[1],
-                "prediction": row[2],
-                "confidence": round(float(row[3]) * 100, 2),
-                "probabilities": {k: round(v * 100, 2) for k, v in probs.items()} if isinstance(probs, dict) else {},
-                "created_at": str(row[5]),
-            })
-        return results
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT id, filename, prediction, confidence, probabilities, created_at "
+                "FROM predictions ORDER BY created_at DESC LIMIT %s",
+                (limit,),
+            )
+            rows = cur.fetchall()
+            cur.close()
+            results = []
+            for row in rows:
+                probs = row[4]
+                if isinstance(probs, str):
+                    try:
+                        probs = json.loads(probs)
+                    except Exception:
+                        probs = {}
+                results.append({
+                    "id": row[0],
+                    "filename": row[1],
+                    "prediction": row[2],
+                    "confidence": round(float(row[3]) * 100, 2),
+                    "probabilities": {k: round(v * 100, 2) for k, v in probs.items()} if isinstance(probs, dict) else {},
+                    "created_at": str(row[5]),
+                })
+            return results
     except Exception as e:
         print(f"DB history failed: {e}")
         return []
 
 
 def db_stats():
-    if not db_conn:
+    if not db_is_ok():
         return 0, {}
     try:
-        cur = db_conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM predictions")
-        total = cur.fetchone()[0] or 0
-        cur.execute("SELECT prediction, COUNT(*) FROM predictions GROUP BY prediction")
-        dist = {r[0]: r[1] for r in cur.fetchall()}
-        cur.close()
-        return total, dist
+        with get_db() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM predictions")
+            total = cur.fetchone()[0] or 0
+            cur.execute("SELECT prediction, COUNT(*) FROM predictions GROUP BY prediction")
+            dist = {r[0]: r[1] for r in cur.fetchall()}
+            cur.close()
+            return total, dist
     except Exception as e:
         print(f"DB stats failed: {e}")
         return 0, {}
@@ -278,8 +299,8 @@ def stats():
 @app.route("/api/debug")
 def debug():
     return jsonify({
-        "db_connected": db_conn is not None and not db_conn.closed,
-        "db_error": db_error,
+        "db_configured": db_is_ok(),
+        "db_init_error": db_init_error,
         "url_set": bool(os.environ.get("DATABASE_URL")),
         "model_loaded": session is not None,
         "labels": LABELS,
@@ -288,7 +309,7 @@ def debug():
 
 @app.route("/health")
 def health():
-    return jsonify({"status": "ok", "db": db_conn is not None and not db_conn.closed})
+    return jsonify({"status": "ok", "db": db_is_ok()})
 
 
 if __name__ == "__main__":
