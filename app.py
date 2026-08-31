@@ -79,22 +79,25 @@ def init_db_table(engine):
 def save_prediction(engine, filename, prediction, confidence, probabilities):
     from sqlalchemy import text
     try:
-        with engine.connect() as conn:
+        pred_id = str(uuid.uuid4())
+        probs_json = json.dumps(probabilities)
+        now = datetime.datetime.utcnow()
+        with engine.begin() as conn:
             conn.execute(text("""
                 INSERT INTO predictions (id, filename, prediction, confidence, probabilities, created_at)
                 VALUES (:id, :filename, :prediction, :confidence, :probabilities, :created_at)
             """), {
-                "id": str(uuid.uuid4()),
+                "id": pred_id,
                 "filename": filename,
                 "prediction": prediction,
-                "confidence": confidence,
-                "probabilities": json.dumps(probabilities),
-                "created_at": datetime.datetime.utcnow(),
+                "confidence": float(confidence),
+                "probabilities": probs_json,
+                "created_at": now,
             })
-            conn.commit()
+        print(f"DB write OK: {pred_id} -> {prediction} ({confidence})")
         return True
     except Exception as e:
-        print(f"DB write failed: {e}")
+        print(f"DB write FAILED: {e}")
         traceback.print_exc()
         return False
 
@@ -262,13 +265,22 @@ def stats():
 
 @app.route("/api/debug")
 def debug():
-    return jsonify({
+    result = {
         "db_connected": db_engine is not None,
         "database_url_set": bool(DB_URL),
         "model_loaded": session is not None,
         "labels": LABELS,
         "healthy_threshold": HEALTHY_THRESHOLD,
-    })
+    }
+    if db_engine:
+        try:
+            s = get_stats(db_engine)
+            result["total_predictions"] = s["total_predictions"]
+            h = get_history(db_engine, limit=1)
+            result["latest_prediction"] = h[0] if h else None
+        except Exception as e:
+            result["db_error"] = str(e)
+    return jsonify(result)
 
 
 @app.route("/health")
