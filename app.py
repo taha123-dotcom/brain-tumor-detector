@@ -35,9 +35,12 @@ DEFAULT_DB_URL = "postgresql://neondb_owner:npg_h9AD2giVlyLG@ep-shiny-dream-aeio
 
 def parse_db():
     global DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASS, db_ready, db_error
+    import time
+
     raw = os.environ.get("DATABASE_URL", "") or DEFAULT_DB_URL
     if not raw:
         db_error = "No DATABASE_URL"
+        print(f"DB: {db_error}")
         return
     url = raw.replace("postgres://", "postgresql://", 1)
     for bad in ["?channel_binding=require", "&channel_binding=require",
@@ -58,39 +61,44 @@ def parse_db():
         print(f"DB: {db_error}")
         return
 
-    try:
-        import psycopg2
-        conn = psycopg2.connect(
-            host=DB_HOST, port=DB_PORT, dbname=DB_NAME,
-            user=DB_USER, password=DB_PASS,
-            sslmode="require", connect_timeout=10,
-        )
-        conn.autocommit = True
-        cur = conn.cursor()
-        cur.execute("SELECT 1")
-        print(f"DB: connected, test={cur.fetchone()[0]}")
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS predictions (
-                id TEXT PRIMARY KEY,
-                filename TEXT NOT NULL,
-                prediction TEXT NOT NULL,
-                confidence DOUBLE PRECISION NOT NULL,
-                probabilities TEXT NOT NULL,
-                created_at TEXT NOT NULL
+    for attempt in range(3):
+        try:
+            import psycopg2
+            conn = psycopg2.connect(
+                host=DB_HOST, port=DB_PORT, dbname=DB_NAME,
+                user=DB_USER, password=DB_PASS,
+                sslmode="require", connect_timeout=15,
             )
-        """)
-        cur.close()
-        conn.close()
-        db_ready = True
-        db_error = None
-        print("DB: table ready")
-    except ImportError:
-        db_error = "psycopg2 not installed"
-        print(f"DB: {db_error}")
-    except Exception as e:
-        db_error = f"{type(e).__name__}: {e}"
-        print(f"DB: {db_error}")
-        traceback.print_exc()
+            conn.autocommit = True
+            cur = conn.cursor()
+            cur.execute("SELECT 1")
+            print(f"DB: connected, test={cur.fetchone()[0]}")
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS predictions (
+                    id TEXT PRIMARY KEY,
+                    filename TEXT NOT NULL,
+                    prediction TEXT NOT NULL,
+                    confidence DOUBLE PRECISION NOT NULL,
+                    probabilities TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+            """)
+            cur.close()
+            conn.close()
+            db_ready = True
+            db_error = None
+            print("DB: table ready")
+            return
+        except ImportError:
+            db_error = "psycopg2 not installed"
+            print(f"DB: {db_error}")
+            return
+        except Exception as e:
+            db_error = f"{type(e).__name__}: {e}"
+            print(f"DB: attempt {attempt+1}/3 failed: {db_error}")
+            if attempt < 2:
+                time.sleep(3)
+    traceback.print_exc()
 
 
 @contextmanager
@@ -275,7 +283,22 @@ def stats():
 
 @app.route("/health")
 def health():
-    return jsonify({"status": "ok", "db": db_ready})
+    return jsonify({"status": "ok", "db": db_ready, "error": db_error})
+
+
+@app.route("/api/test-db")
+def test_db():
+    if not db_ready:
+        return jsonify({"ok": False, "error": db_error, "host": DB_HOST})
+    try:
+        with db_conn() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM predictions")
+            count = cur.fetchone()[0]
+            cur.close()
+            return jsonify({"ok": True, "count": count})
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}"})
 
 
 if __name__ == "__main__":
