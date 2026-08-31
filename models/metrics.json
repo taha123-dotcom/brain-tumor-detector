@@ -1,1 +1,9 @@
-{"test_accuracy": 99.59, "classes": ["brain_glioma", "brain_menin", "brain_tumor", "healthy"], "epochs": 15, "img_size": 224}
+{
+  "test_accuracy": 99.31,
+  "best_train_acc": 98.59,
+  "classes": ["brain_glioma", "brain_menin", "brain_tumor", "healthy"],
+  "epochs": 35,
+  "img_size": 224,
+  "total_params": 4654340,
+  "training_time_min": 17.7
+}
