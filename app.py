@@ -80,6 +80,8 @@ with open(os.path.join(MODEL_DIR, "metrics.json")) as f:
     METRICS = json.load(f)
 
 IMG_SIZE = METRICS.get("img_size", 224)
+HEALTHY_THRESHOLD = METRICS.get("healthy_fallback", {}).get("threshold", 0.30)
+HEALTHY_ENABLED = METRICS.get("healthy_fallback", {}).get("enabled", True)
 
 
 def preprocess(image_bytes):
@@ -126,7 +128,13 @@ def predict():
     pred_label = LABELS[pred_idx]
     confidence = float(probs[pred_idx])
 
+    if HEALTHY_ENABLED and confidence < HEALTHY_THRESHOLD:
+        pred_label = "healthy"
+        confidence = 1.0 - confidence
+
     prob_dict = {LABELS[i]: float(probs[i]) for i in range(len(LABELS))}
+    if HEALTHY_ENABLED:
+        prob_dict["healthy"] = round((1.0 - max(probs)) * 100, 2) if confidence < HEALTHY_THRESHOLD else 0.0
 
     record_id = None
     if DB_ENABLED:

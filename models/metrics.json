@@ -1,9 +1,14 @@
 {
-  "test_accuracy": 99.31,
-  "best_train_acc": 98.59,
-  "classes": ["brain_glioma", "brain_menin", "brain_tumor", "healthy"],
+  "test_accuracy": 99.34,
+  "best_train_acc": 98.60,
+  "classes": ["brain_glioma", "brain_menin", "brain_tumor"],
   "epochs": 35,
   "img_size": 224,
-  "total_params": 4654340,
-  "training_time_min": 17.7
+  "total_params": 4654083,
+  "training_time_min": 17.7,
+  "healthy_fallback": {
+    "enabled": true,
+    "threshold": 0.30,
+    "rule": "healthy if all class probabilities < threshold"
+  }
 }
