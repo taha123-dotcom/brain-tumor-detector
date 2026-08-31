@@ -5,32 +5,31 @@
 }
 
 :root {
-    --bg: #0f172a;
-    --surface: #1e293b;
-    --surface2: #334155;
-    --border: #475569;
-    --text: #f1f5f9;
-    --text-dim: #94a3b8;
-    --accent: #3b82f6;
-    --accent-hover: #2563eb;
-    --success: #22c55e;
-    --warning: #f59e0b;
-    --danger: #ef4444;
-    --glioma: #ef4444;
-    --menin: #f59e0b;
-    --tumor: #a855f7;
-    --healthy: #22c55e;
+    --bg: #0a0e1a;
+    --surface: #111827;
+    --surface2: #1f2937;
+    --border: #374151;
+    --text: #f9fafb;
+    --text-dim: #9ca3af;
+    --accent: #6366f1;
+    --accent-hover: #818cf8;
+    --accent-glow: rgba(99, 102, 241, 0.3);
+    --success: #34d399;
+    --glioma: #f87171;
+    --menin: #fbbf24;
+    --tumor: #c084fc;
+    --healthy: #34d399;
 }
 
 body {
-    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
     background: var(--bg);
     color: var(--text);
     min-height: 100vh;
 }
 
 .container {
-    max-width: 960px;
+    max-width: 900px;
     margin: 0 auto;
     padding: 2rem 1.5rem;
 }
@@ -41,9 +40,13 @@ header {
 }
 
 header h1 {
-    font-size: 2rem;
-    font-weight: 700;
+    font-size: 2.25rem;
+    font-weight: 800;
     margin-bottom: 0.5rem;
+    background: linear-gradient(135deg, #6366f1, #a78bfa, #c084fc);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
 }
 
 .subtitle {
@@ -72,7 +75,6 @@ header h1 {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 2rem;
-    margin-bottom: 2.5rem;
 }
 
 @media (max-width: 640px) {
@@ -89,17 +91,18 @@ header h1 {
 
 .upload-area {
     border: 2px dashed var(--border);
-    border-radius: 12px;
+    border-radius: 16px;
     padding: 3rem 1.5rem;
     text-align: center;
     cursor: pointer;
-    transition: border-color 0.2s, background 0.2s;
+    transition: border-color 0.3s, background 0.3s, box-shadow 0.3s;
 }
 
 .upload-area:hover,
 .upload-area.drag-over {
     border-color: var(--accent);
-    background: rgba(59, 130, 246, 0.05);
+    background: rgba(99, 102, 241, 0.05);
+    box-shadow: 0 0 30px var(--accent-glow);
 }
 
 .upload-icon {
@@ -117,7 +120,7 @@ header h1 {
 }
 
 .preview {
-    border-radius: 12px;
+    border-radius: 16px;
     overflow: hidden;
     background: var(--surface);
     border: 1px solid var(--border);
@@ -126,185 +129,68 @@ header h1 {
 .preview img {
     width: 100%;
     display: block;
-    max-height: 300px;
+    max-height: 280px;
     object-fit: contain;
 }
 
 .btn-primary {
-    background: var(--accent);
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
     color: white;
     border: none;
-    padding: 0.85rem 1.5rem;
-    border-radius: 8px;
+    padding: 0.9rem 1.5rem;
+    border-radius: 12px;
     font-size: 1rem;
-    font-weight: 600;
+    font-weight: 700;
     cursor: pointer;
-    transition: background 0.2s, opacity 0.2s;
+    transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
+    box-shadow: 0 4px 15px var(--accent-glow);
 }
 
 .btn-primary:hover:not(:disabled) {
-    background: var(--accent-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 25px var(--accent-glow);
 }
 
 .btn-primary:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+    transform: none;
 }
 
 .result-section h2 {
     font-size: 1.25rem;
     margin-bottom: 1rem;
+    font-weight: 700;
 }
 
 .result-section h3 {
-    font-size: 1rem;
+    font-size: 0.9rem;
     color: var(--text-dim);
-    margin-top: 1.5rem;
-    margin-bottom: 0.75rem;
+    margin-top: 1.25rem;
+    margin-bottom: 0.6rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
 }
 
 .prediction-card {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: 16px;
     padding: 1.5rem;
     text-align: center;
 }
 
 .pred-label {
     font-size: 1.5rem;
-    font-weight: 700;
+    font-weight: 800;
     text-transform: capitalize;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.3rem;
 }
 
 .pred-confidence {
-    font-size: 2rem;
-    font-weight: 800;
-}
-
-.prob-bar-row {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    margin-bottom: 0.6rem;
-}
-
-.prob-bar-label {
-    width: 120px;
-    font-size: 0.85rem;
-    text-align: right;
-    text-transform: capitalize;
-    color: var(--text-dim);
-    flex-shrink: 0;
-}
-
-.prob-bar-track {
-    flex: 1;
-    height: 24px;
-    background: var(--surface);
-    border-radius: 6px;
-    overflow: hidden;
-    border: 1px solid var(--border);
-}
-
-.prob-bar-fill {
-    height: 100%;
-    border-radius: 6px;
-    transition: width 0.6s ease;
-    display: flex;
-    align-items: center;
-    padding-left: 8px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: white;
-    min-width: fit-content;
-}
-
-.stats-section {
-    margin-top: 1rem;
-}
-
-.stats-section h2 {
-    font-size: 1.25rem;
-    margin-bottom: 1rem;
-}
-
-.stats-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: 0.75rem;
-    margin-bottom: 1.5rem;
-}
-
-.stat-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 1rem;
-    text-align: center;
-}
-
-.stat-value {
-    font-size: 1.75rem;
-    font-weight: 700;
-    color: var(--accent);
-}
-
-.stat-label {
-    font-size: 0.8rem;
-    color: var(--text-dim);
-    margin-top: 0.25rem;
-}
-
-.history-table {
-    width: 100%;
-    border-collapse: collapse;
-}
-
-.history-table th,
-.history-table td {
-    padding: 0.65rem 0.85rem;
-    text-align: left;
-    border-bottom: 1px solid var(--surface2);
-    font-size: 0.85rem;
-}
-
-.history-table th {
-    color: var(--text-dim);
-    font-weight: 600;
-}
-
-.history-table tr:hover {
-    background: var(--surface);
-}
-
-.pred-tag {
-    display: inline-block;
-    padding: 0.15rem 0.5rem;
-    border-radius: 4px;
-    font-size: 0.8rem;
-    font-weight: 600;
-    text-transform: capitalize;
-}
-
-.pred-tag.brain_glioma { background: rgba(239,68,68,0.15); color: var(--glioma); }
-.pred-tag.brain_menin { background: rgba(245,158,11,0.15); color: var(--menin); }
-.pred-tag.brain_tumor { background: rgba(168,85,247,0.15); color: var(--tumor); }
-.pred-tag.healthy { background: rgba(34,197,94,0.15); color: var(--healthy); }
-
-footer {
-    text-align: center;
-    margin-top: 3rem;
-    padding-top: 1.5rem;
-    border-top: 1px solid var(--surface2);
-    color: var(--text-dim);
-    font-size: 0.8rem;
-}
-
-.loading {
-    opacity: 0.5;
-    pointer-events: none;
+    font-size: 2.5rem;
+    font-weight: 900;
 }
 
 .pie-chart-wrap {
@@ -314,7 +200,7 @@ footer {
     margin: 1.25rem 0;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 12px;
+    border-radius: 16px;
     padding: 1.25rem;
 }
 
@@ -349,6 +235,58 @@ footer {
 }
 
 .legend-val {
-    font-weight: 600;
+    font-weight: 700;
     color: var(--text);
+}
+
+.prob-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+
+.prob-bar-label {
+    width: 110px;
+    font-size: 0.82rem;
+    text-align: right;
+    text-transform: capitalize;
+    color: var(--text-dim);
+    flex-shrink: 0;
+}
+
+.prob-bar-track {
+    flex: 1;
+    height: 22px;
+    background: var(--surface);
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+}
+
+.prob-bar-fill {
+    height: 100%;
+    border-radius: 6px;
+    transition: width 0.6s ease;
+    display: flex;
+    align-items: center;
+    padding-left: 8px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: white;
+    min-width: fit-content;
+}
+
+footer {
+    text-align: center;
+    margin-top: 3rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--surface2);
+    color: var(--text-dim);
+    font-size: 0.8rem;
+}
+
+.loading {
+    opacity: 0.5;
+    pointer-events: none;
 }

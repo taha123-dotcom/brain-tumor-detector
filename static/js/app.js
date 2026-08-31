@@ -7,18 +7,16 @@ const resultSection = document.getElementById('resultSection');
 const predLabel = document.getElementById('predLabel');
 const predConfidence = document.getElementById('predConfidence');
 const probBars = document.getElementById('probBars');
-const statsGrid = document.getElementById('statsGrid');
-const historyTable = document.getElementById('historyTable');
 const pieCanvas = document.getElementById('pieChart');
 const pieLegend = document.getElementById('pieLegend');
 
 let selectedFile = null;
 
 const classColors = {
-    brain_glioma: '#ef4444',
-    brain_menin: '#f59e0b',
-    brain_tumor: '#a855f7',
-    healthy: '#22c55e'
+    brain_glioma: '#f87171',
+    brain_menin: '#fbbf24',
+    brain_tumor: '#c084fc',
+    healthy: '#34d399'
 };
 
 dropZone.addEventListener('click', () => fileInput.click());
@@ -72,8 +70,6 @@ predictBtn.addEventListener('click', async () => {
         predictBtn.disabled = false;
         predictBtn.textContent = 'Predict';
         dropZone.classList.remove('loading');
-        loadHistory();
-        loadStats();
     }
 });
 
@@ -81,20 +77,19 @@ function drawPieChart(probabilities) {
     const ctx = pieCanvas.getContext('2d');
     const cx = pieCanvas.width / 2;
     const cy = pieCanvas.height / 2;
-    const radius = Math.min(cx, cy) - 10;
+    const radius = Math.min(cx, cy) - 8;
 
     ctx.clearRect(0, 0, pieCanvas.width, pieCanvas.height);
 
     const entries = Object.entries(probabilities).filter(([, v]) => v > 0);
     const total = entries.reduce((sum, [, v]) => sum + v, 0);
-
     if (total === 0) return;
 
     let startAngle = -Math.PI / 2;
 
     for (const [cls, value] of entries) {
         const sliceAngle = (value / total) * 2 * Math.PI;
-        const color = classColors[cls] || '#3b82f6';
+        const color = classColors[cls] || '#6366f1';
 
         ctx.beginPath();
         ctx.moveTo(cx, cy);
@@ -109,7 +104,7 @@ function drawPieChart(probabilities) {
             const lx = cx + Math.cos(midAngle) * labelR;
             const ly = cy + Math.sin(midAngle) * labelR;
             ctx.fillStyle = '#fff';
-            ctx.font = 'bold 13px system-ui, sans-serif';
+            ctx.font = 'bold 12px system-ui, sans-serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(value.toFixed(1) + '%', lx, ly);
@@ -119,23 +114,23 @@ function drawPieChart(probabilities) {
     }
 
     ctx.beginPath();
-    ctx.arc(cx, cy, radius * 0.4, 0, 2 * Math.PI);
-    ctx.fillStyle = '#1e293b';
+    ctx.arc(cx, cy, radius * 0.38, 0, 2 * Math.PI);
+    ctx.fillStyle = '#111827';
     ctx.fill();
 
-    const predText = document.getElementById('predLabel').textContent;
-    ctx.fillStyle = '#f1f5f9';
-    ctx.font = 'bold 14px system-ui, sans-serif';
+    const predText = predLabel.textContent;
+    ctx.fillStyle = '#f9fafb';
+    ctx.font = 'bold 13px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(predText, cx, cy - 8);
-    ctx.font = '12px system-ui, sans-serif';
-    ctx.fillStyle = '#94a3b8';
-    ctx.fillText(document.getElementById('predConfidence').textContent, cx, cy + 10);
+    ctx.fillText(predText, cx, cy - 6);
+    ctx.font = '11px system-ui, sans-serif';
+    ctx.fillStyle = '#9ca3af';
+    ctx.fillText(predConfidence.textContent, cx, cy + 10);
 
     pieLegend.innerHTML = '';
     for (const [cls, value] of entries) {
-        const color = classColors[cls] || '#3b82f6';
+        const color = classColors[cls] || '#6366f1';
         pieLegend.innerHTML += `
             <div class="legend-item">
                 <span class="legend-dot" style="background:${color}"></span>
@@ -148,14 +143,14 @@ function drawPieChart(probabilities) {
 function showResult(data) {
     resultSection.style.display = 'block';
     predLabel.textContent = data.prediction.replace(/_/g, ' ');
-    predLabel.style.color = classColors[data.prediction] || '#3b82f6';
+    predLabel.style.color = classColors[data.prediction] || '#6366f1';
     predConfidence.textContent = data.confidence + '%';
-    predConfidence.style.color = classColors[data.prediction] || '#3b82f6';
+    predConfidence.style.color = classColors[data.prediction] || '#6366f1';
 
     probBars.innerHTML = '';
     const sorted = Object.entries(data.probabilities).sort((a, b) => b[1] - a[1]);
     for (const [cls, prob] of sorted) {
-        const color = classColors[cls] || '#3b82f6';
+        const color = classColors[cls] || '#6366f1';
         probBars.innerHTML += `
             <div class="prob-bar-row">
                 <span class="prob-bar-label">${cls.replace(/_/g, ' ')}</span>
@@ -167,44 +162,3 @@ function showResult(data) {
 
     drawPieChart(data.probabilities);
 }
-
-async function loadHistory() {
-    try {
-        const res = await fetch('/api/history');
-        const data = await res.json();
-        if (!data.length) {
-            historyTable.innerHTML = '<p style="color:var(--text-dim)">No predictions yet.</p>';
-            return;
-        }
-        let html = `<table class="history-table">
-            <thead><tr><th>File</th><th>Prediction</th><th>Confidence</th><th>Time</th></tr></thead>
-            <tbody>`;
-        for (const r of data) {
-            const t = new Date(r.created_at).toLocaleString();
-            html += `<tr>
-                <td>${r.filename}</td>
-                <td><span class="pred-tag ${r.prediction}">${r.prediction.replace(/_/g, ' ')}</span></td>
-                <td>${r.confidence}%</td>
-                <td>${t}</td>
-            </tr>`;
-        }
-        html += '</tbody></table>';
-        historyTable.innerHTML = html;
-    } catch (e) {
-        historyTable.innerHTML = '<p style="color:var(--text-dim)">Could not load history.</p>';
-    }
-}
-
-async function loadStats() {
-    try {
-        const res = await fetch('/api/stats');
-        const data = await res.json();
-        statsGrid.innerHTML = `
-            <div class="stat-card"><div class="stat-value">${data.total_predictions}</div><div class="stat-label">Total Predictions</div></div>
-            <div class="stat-card"><div class="stat-value">${data.model_accuracy}%</div><div class="stat-label">Model Accuracy</div></div>
-            <div class="stat-card"><div class="stat-value">${data.classes.length}</div><div class="stat-label">Classes</div></div>`;
-    } catch (e) {}
-}
-
-loadHistory();
-loadStats();
