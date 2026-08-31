@@ -20,131 +20,155 @@ LABELS = []
 METRICS = {}
 session = None
 
-DB_URL = os.environ.get("DATABASE_URL", "")
-
 db_engine = None
-db_conn = None
+db_error_msg = None
 
 
-def get_db_engine():
-    global db_engine, db_conn
-    if not DB_URL:
-        print("No DATABASE_URL set, DB disabled")
-        return None
+def init_db():
+    global db_engine, db_error_msg
+    raw_url = os.environ.get("DATABASE_URL", "")
+    if not raw_url:
+        db_error_msg = "DATABASE_URL env var not set"
+        print(f"DB: {db_error_msg}")
+        return
+
+    url = raw_url.strip()
+    url = url.replace("postgres://", "postgresql://", 1)
+
+    for fix in [
+        ("?channel_binding=require", "?"),
+        ("&channel_binding=require", ""),
+        ("?channel_binding=require&", "?"),
+        ("&channel_binding=require&", "&"),
+    ]:
+        url = url.replace(fix[0], fix[1])
+
+    if url.endswith("&"):
+        url = url[:-1]
+    if url.endswith("?"):
+        url = url[:-1]
+
+    print(f"DB: connecting to {url.split('@')[-1] if '@' in url else url}...")
+
     try:
-        from sqlalchemy import create_engine, text, Column, String, Float, DateTime, JSON
-        from sqlalchemy.orm import declarative_base, sessionmaker
-
-        url = DB_URL.replace("postgres://", "postgresql://", 1)
-        for bad in ["channel_binding=require", "&channel_binding=require", "?channel_binding=require"]:
-            url = url.replace(bad, "")
-        url = url.rstrip("?&")
+        import psycopg2
+        from sqlalchemy import create_engine, text
 
         engine = create_engine(
             url,
             pool_pre_ping=True,
             pool_recycle=300,
-            connect_args={"sslmode": "require"},
+            connect_args={"sslmode": "require", "connect_timeout": 10},
         )
+
         with engine.connect() as conn:
-            result = conn.execute(text("SELECT 1"))
-            val = result.scalar()
-            print(f"DB test query: {val}")
+            r = conn.execute(text("SELECT 1"))
+            print(f"DB: test query = {r.scalar()}")
 
         db_engine = engine
-        return engine
-    except Exception as e:
-        print(f"DB connection failed: {e}")
-        traceback.print_exc()
-        return None
+        db_error_msg = None
 
-
-def init_db_table(engine):
-    from sqlalchemy import text
-    with engine.connect() as conn:
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS predictions (
-                id VARCHAR(36) PRIMARY KEY,
-                filename VARCHAR(255) NOT NULL,
-                prediction VARCHAR(50) NOT NULL,
-                confidence FLOAT NOT NULL,
-                probabilities JSON NOT NULL,
-                created_at TIMESTAMP DEFAULT NOW()
-            )
-        """))
-        conn.commit()
-    print("DB table ready")
-
-
-def save_prediction(engine, filename, prediction, confidence, probabilities):
-    from sqlalchemy import text
-    try:
-        pred_id = str(uuid.uuid4())
-        probs_json = json.dumps(probabilities)
-        now = datetime.datetime.utcnow()
-        with engine.begin() as conn:
+        with engine.connect() as conn:
             conn.execute(text("""
-                INSERT INTO predictions (id, filename, prediction, confidence, probabilities, created_at)
-                VALUES (:id, :filename, :prediction, :confidence, :probabilities, :created_at)
-            """), {
+                CREATE TABLE IF NOT EXISTS predictions (
+                    id VARCHAR(36) PRIMARY KEY,
+                    filename VARCHAR(255) NOT NULL,
+                    prediction VARCHAR(50) NOT NULL,
+                    confidence DOUBLE PRECISION NOT NULL,
+                    probabilities TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            conn.commit()
+        print("DB: table ready")
+
+    except ImportError as e:
+        db_error_msg = f"Missing driver: {e}"
+        print(f"DB: {db_error_msg}")
+    except Exception as e:
+        db_error_msg = f"{type(e).__name__}: {e}"
+        print(f"DB: {db_error_msg}")
+        traceback.print_exc()
+
+
+def db_save(filename, prediction, confidence, probabilities):
+    global db_engine
+    if not db_engine:
+        return False, "no engine"
+    try:
+        from sqlalchemy import text
+        pred_id = str(uuid.uuid4())
+        now = datetime.datetime.utcnow().isoformat()
+        with db_engine.begin() as conn:
+            conn.execute(text(
+                "INSERT INTO predictions (id, filename, prediction, confidence, probabilities, created_at) "
+                "VALUES (:id, :filename, :prediction, :confidence, :probabilities, :created_at)"
+            ), {
                 "id": pred_id,
                 "filename": filename,
                 "prediction": prediction,
                 "confidence": float(confidence),
-                "probabilities": probs_json,
+                "probabilities": json.dumps(probabilities),
                 "created_at": now,
             })
-        print(f"DB write OK: {pred_id} -> {prediction} ({confidence})")
-        return True
+        print(f"DB: saved {pred_id}")
+        return True, None
     except Exception as e:
-        print(f"DB write FAILED: {e}")
+        err = f"{type(e).__name__}: {e}"
+        print(f"DB save failed: {err}")
         traceback.print_exc()
-        return False
+        return False, err
 
 
-def get_history(engine, limit=50):
-    from sqlalchemy import text
+def db_history(limit=50):
+    global db_engine
+    if not db_engine:
+        return []
     try:
-        with engine.connect() as conn:
-            result = conn.execute(text(
+        from sqlalchemy import text
+        with db_engine.connect() as conn:
+            rows = conn.execute(text(
                 "SELECT id, filename, prediction, confidence, probabilities, created_at "
                 "FROM predictions ORDER BY created_at DESC LIMIT :lim"
-            ), {"lim": limit})
-            rows = result.fetchall()
-            records = []
+            ), {"lim": limit}).fetchall()
+            results = []
             for row in rows:
                 probs = row[4]
                 if isinstance(probs, str):
-                    probs = json.loads(probs)
-                records.append({
+                    try:
+                        probs = json.loads(probs)
+                    except Exception:
+                        probs = {}
+                results.append({
                     "id": row[0],
                     "filename": row[1],
                     "prediction": row[2],
                     "confidence": round(float(row[3]) * 100, 2),
-                    "probabilities": {k: round(v * 100, 2) for k, v in probs.items()} if isinstance(probs, dict) else probs,
-                    "created_at": row[5].isoformat() if hasattr(row[5], "isoformat") else str(row[5]),
+                    "probabilities": {k: round(v * 100, 2) for k, v in probs.items()} if isinstance(probs, dict) else {},
+                    "created_at": str(row[5]),
                 })
-            return records
+            return results
     except Exception as e:
-        print(f"History query failed: {e}")
-        traceback.print_exc()
+        print(f"DB history failed: {e}")
         return []
 
 
-def get_stats(engine):
-    from sqlalchemy import text
+def db_stats():
+    global db_engine
     total = 0
-    class_counts = {}
-    try:
-        with engine.connect() as conn:
-            total = conn.execute(text("SELECT COUNT(*) FROM predictions")).scalar() or 0
-            rows = conn.execute(text(
-                "SELECT prediction, COUNT(*) as cnt FROM predictions GROUP BY prediction"
-            )).fetchall()
-            class_counts = {row[0]: row[1] for row in rows}
-    except Exception as e:
-        print(f"Stats query failed: {e}")
-    return {"total_predictions": total, "class_distribution": class_counts}
+    dist = {}
+    if db_engine:
+        try:
+            from sqlalchemy import text
+            with db_engine.connect() as conn:
+                total = conn.execute(text("SELECT COUNT(*) FROM predictions")).scalar() or 0
+                rows = conn.execute(text(
+                    "SELECT prediction, COUNT(*) FROM predictions GROUP BY prediction"
+                )).fetchall()
+                dist = {r[0]: r[1] for r in rows}
+        except Exception as e:
+            print(f"DB stats failed: {e}")
+    return total, dist
 
 
 def load_model():
@@ -162,7 +186,6 @@ def load_model():
 
     print(f"Loading model: {model_path}")
     session = ort.InferenceSession(model_path)
-    print(f"Model loaded. Inputs: {session.get_inputs()[0].shape}")
 
     with open(os.path.join(MODEL_DIR, "labels.json")) as f:
         LABELS = json.load(f)
@@ -172,7 +195,7 @@ def load_model():
 
     IMG_SIZE = METRICS.get("img_size", 224)
     HEALTHY_THRESHOLD = METRICS.get("healthy_fallback", {}).get("threshold", 0.30)
-    print(f"Labels: {LABELS}, Threshold: {HEALTHY_THRESHOLD}")
+    print(f"Model ready. Classes: {LABELS}")
 
 
 def preprocess(image_bytes):
@@ -185,9 +208,7 @@ def preprocess(image_bytes):
 
 
 load_model()
-db_engine = get_db_engine()
-if db_engine:
-    init_db_table(db_engine)
+init_db()
 
 
 @app.route("/")
@@ -228,36 +249,28 @@ def predict():
     prob_dict = {LABELS[i]: float(probs[i]) for i in range(len(LABELS))}
     prob_dict["healthy"] = max(0, 1.0 - float(np.max(probs)))
 
-    saved = False
-    if db_engine:
-        saved = save_prediction(db_engine, file.filename, pred_label, confidence, prob_dict)
+    saved, db_err = db_save(file.filename, pred_label, confidence, prob_dict)
 
     return jsonify({
         "prediction": pred_label,
         "confidence": round(confidence * 100, 2),
-        "probabilities": {k: round(v * 100, 2) if isinstance(v, float) else v for k, v in prob_dict.items()},
+        "probabilities": {k: round(v * 100, 2) for k, v in prob_dict.items()},
         "db_saved": saved,
+        "db_error": db_err,
     })
 
 
 @app.route("/api/history")
 def history():
-    if not db_engine:
-        return jsonify([])
-    return jsonify(get_history(db_engine))
+    return jsonify(db_history())
 
 
 @app.route("/api/stats")
 def stats():
-    total = 0
-    class_counts = {}
-    if db_engine:
-        s = get_stats(db_engine)
-        total = s["total_predictions"]
-        class_counts = s["class_distribution"]
+    total, dist = db_stats()
     return jsonify({
         "total_predictions": total,
-        "class_distribution": class_counts,
+        "class_distribution": dist,
         "model_accuracy": METRICS.get("test_accuracy"),
         "classes": LABELS,
     })
@@ -265,22 +278,28 @@ def stats():
 
 @app.route("/api/debug")
 def debug():
-    result = {
-        "db_connected": db_engine is not None,
-        "database_url_set": bool(DB_URL),
+    raw_url = os.environ.get("DATABASE_URL", "")
+    return jsonify({
+        "db_engine_alive": db_engine is not None,
+        "db_error": db_error_msg,
+        "database_url_set": bool(raw_url),
+        "database_url_preview": raw_url[:40] + "..." if len(raw_url) > 40 else raw_url,
         "model_loaded": session is not None,
         "labels": LABELS,
-        "healthy_threshold": HEALTHY_THRESHOLD,
-    }
-    if db_engine:
-        try:
-            s = get_stats(db_engine)
-            result["total_predictions"] = s["total_predictions"]
-            h = get_history(db_engine, limit=1)
-            result["latest_prediction"] = h[0] if h else None
-        except Exception as e:
-            result["db_error"] = str(e)
-    return jsonify(result)
+    })
+
+
+@app.route("/api/test-db")
+def test_db():
+    if not db_engine:
+        return jsonify({"ok": False, "error": db_error_msg})
+    try:
+        from sqlalchemy import text
+        with db_engine.connect() as conn:
+            count = conn.execute(text("SELECT COUNT(*) FROM predictions")).scalar()
+        return jsonify({"ok": True, "prediction_count": count})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 
 @app.route("/health")
