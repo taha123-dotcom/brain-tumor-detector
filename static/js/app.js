@@ -43,7 +43,8 @@ fileInput.addEventListener('change', () => {
 function handleFile(file) {
     if (!file.type.startsWith('image/')) return;
     selectedFile = file;
-    previewImg.src = URL.createObjectURL(file);
+    const url = URL.createObjectURL(file);
+    previewImg.src = url;
     preview.style.display = 'block';
     predictBtn.disabled = false;
     resultSection.style.display = 'none';
@@ -61,11 +62,8 @@ predictBtn.addEventListener('click', async () => {
     try {
         const res = await fetch('/api/predict', { method: 'POST', body: form });
         const data = await res.json();
-        if (res.ok) {
-            showResult(data);
-        } else {
-            alert(data.error || 'Prediction failed');
-        }
+        if (res.ok) showResult(data);
+        else alert(data.error || 'Prediction failed');
     } catch (e) {
         alert('Network error: ' + e.message);
     } finally {
@@ -79,21 +77,20 @@ predictBtn.addEventListener('click', async () => {
 
 function showResult(data) {
     resultSection.style.display = 'block';
-    const color = classColors[data.prediction] || '#3b82f6';
     predLabel.textContent = data.prediction.replace(/_/g, ' ');
-    predLabel.style.color = color;
+    predLabel.style.color = classColors[data.prediction] || '#3b82f6';
     predConfidence.textContent = data.confidence + '%';
-    predConfidence.style.color = color;
+    predConfidence.style.color = classColors[data.prediction] || '#3b82f6';
 
     probBars.innerHTML = '';
     const sorted = Object.entries(data.probabilities).sort((a, b) => b[1] - a[1]);
     for (const [cls, prob] of sorted) {
-        const c = classColors[cls] || '#3b82f6';
+        const color = classColors[cls] || '#3b82f6';
         probBars.innerHTML += `
             <div class="prob-bar-row">
                 <span class="prob-bar-label">${cls.replace(/_/g, ' ')}</span>
                 <div class="prob-bar-track">
-                    <div class="prob-bar-fill" style="width:${prob}%;background:${c}">${prob}%</div>
+                    <div class="prob-bar-fill" style="width:${prob}%;background:${color}">${prob}%</div>
                 </div>
             </div>`;
     }
@@ -102,7 +99,6 @@ function showResult(data) {
 async function loadHistory() {
     try {
         const res = await fetch('/api/history');
-        if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
         if (!data.length) {
             historyTable.innerHTML = '<p style="color:var(--text-dim)">No predictions yet.</p>';
@@ -123,22 +119,19 @@ async function loadHistory() {
         html += '</tbody></table>';
         historyTable.innerHTML = html;
     } catch (e) {
-        historyTable.innerHTML = '<p style="color:var(--text-dim)">No prediction history available.</p>';
+        historyTable.innerHTML = '<p style="color:var(--text-dim)">Could not load history.</p>';
     }
 }
 
 async function loadStats() {
     try {
         const res = await fetch('/api/stats');
-        if (!res.ok) throw new Error('HTTP ' + res.status);
         const data = await res.json();
         statsGrid.innerHTML = `
             <div class="stat-card"><div class="stat-value">${data.total_predictions}</div><div class="stat-label">Total Predictions</div></div>
             <div class="stat-card"><div class="stat-value">${data.model_accuracy}%</div><div class="stat-label">Model Accuracy</div></div>
             <div class="stat-card"><div class="stat-value">${data.classes.length}</div><div class="stat-label">Classes</div></div>`;
-    } catch (e) {
-        statsGrid.innerHTML = '';
-    }
+    } catch (e) {}
 }
 
 loadHistory();
