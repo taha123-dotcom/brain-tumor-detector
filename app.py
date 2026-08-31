@@ -313,6 +313,41 @@ def health():
     return jsonify({"status": "ok", "db": db_is_ok()})
 
 
+@app.route("/api/test-write")
+def test_write():
+    if not db_is_ok():
+        return jsonify({"ok": False, "error": db_init_error})
+    try:
+        with get_db() as conn:
+            conn.autocommit = True
+            cur = conn.cursor()
+            cur.execute("SELECT COUNT(*) FROM predictions")
+            count_before = cur.fetchone()[0]
+            cur.execute(
+                "INSERT INTO predictions (id, filename, prediction, confidence, probabilities, created_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s)",
+                (
+                    str(uuid.uuid4()),
+                    "test.jpg",
+                    "brain_glioma",
+                    0.95,
+                    json.dumps({"brain_glioma": 0.95, "brain_menin": 0.03, "brain_tumor": 0.01, "healthy": 0.01}),
+                    datetime.datetime.utcnow().isoformat(),
+                ),
+            )
+            cur.execute("SELECT COUNT(*) FROM predictions")
+            count_after = cur.fetchone()
+            cur.close()
+            return jsonify({
+                "ok": True,
+                "count_before": count_before,
+                "count_after": count_after[0] if count_after else None,
+                "rows_affected": cur.rowcount if cur.rowcount >= 0 else "unknown",
+            })
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"{type(e).__name__}: {e}", "traceback": traceback.format_exc()})
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
