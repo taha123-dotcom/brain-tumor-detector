@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Brain Tumor Classifier</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Brain Tumor Classifier</h1>
+            <p class="subtitle">Upload a brain MRI scan for AI-powered classification</p>
+            <div class="model-info">
+                <span class="badge">Accuracy: {{ metrics.test_accuracy }}%</span>
+                <span class="badge">Classes: {{ metrics.classes | length }}</span>
+                <span class="badge">Epochs: {{ metrics.epochs }}</span>
+            </div>
+        </header>
+
+        <div class="main-grid">
+            <div class="upload-section">
+                <div class="upload-area" id="dropZone">
+                    <div class="upload-icon">&#128247;</div>
+                    <p>Drag & drop an MRI image here</p>
+                    <p class="small">or click to browse</p>
+                    <input type="file" id="fileInput" accept="image/*" hidden>
+                </div>
+                <div id="preview" class="preview" style="display:none">
+                    <img id="previewImg" alt="Preview">
+                </div>
+                <button id="predictBtn" class="btn-primary" disabled>Predict</button>
+            </div>
+
+            <div class="result-section" id="resultSection" style="display:none">
+                <h2>Result</h2>
+                <div class="prediction-card" id="predictionCard">
+                    <div class="pred-label" id="predLabel"></div>
+                    <div class="pred-confidence" id="predConfidence"></div>
+                </div>
+                <h3>Class Probabilities</h3>
+                <div id="probBars"></div>
+            </div>
+        </div>
+
+        <div class="stats-section" id="statsSection">
+            <h2>Prediction History</h2>
+            <div class="stats-grid" id="statsGrid"></div>
+            <div id="historyTable"></div>
+        </div>
+
+        <footer>
+            <p>ONNX Model deployed on Render &bull; DB by Neon Postgres</p>
+        </footer>
+    </div>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
